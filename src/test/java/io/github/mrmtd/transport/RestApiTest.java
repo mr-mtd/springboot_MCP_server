@@ -69,6 +69,16 @@ class RestApiTest extends PostgresTestBase {
     }
 
     @Test
+    void metricsAndSessionsAreExposedOnActuator() throws Exception {
+        get("/api/loads/420");
+        assertThat(get("/actuator/metrics/transport.tool.invocations").statusCode()).isEqualTo(200);
+        var prometheus = get("/actuator/prometheus");
+        assertThat(prometheus.statusCode()).isEqualTo(200);
+        assertThat(prometheus.body()).contains("transport_tool_invocations_seconds_count");
+        assertThat(get("/actuator/mcpsessions").statusCode()).isEqualTo(200);
+    }
+
+    @Test
     void swaggerUiIsServed() throws Exception {
         var response = http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/swagger-ui/index.html")).build(),
                 HttpResponse.BodyHandlers.ofString());

@@ -43,10 +43,10 @@ public class LoadRepository {
                 WHERE l.load_number = :loadNumber
                 """.formatted(DelayRule.HOURS_LATE_SQL);
 
-        return jdbc.sql(sql)
+        return QueryLog.timed("load.findStatus", () -> jdbc.sql(sql)
                 .param("loadNumber", loadNumber)
                 .query((rs, n) -> {
-                    Double hoursLate = getDouble(rs, "hours_late");
+                    Double rawHoursLate = getDouble(rs, "hours_late");
                     LoadEventSummary lastEvent = rs.getString("event_type") == null ? null : new LoadEventSummary(
                             rs.getString("event_type"),
                             rs.getObject("occurred_at", OffsetDateTime.class),
@@ -71,14 +71,17 @@ public class LoadRepository {
                             rs.getObject("picked_up_at", OffsetDateTime.class),
                             rs.getObject("delivery_scheduled_at", OffsetDateTime.class),
                             rs.getObject("delivered_at", OffsetDateTime.class),
-                            hoursLate,
-                            hoursLate != null && hoursLate > DelayRule.LATE_THRESHOLD_HOURS,
+                            DelayRule.display(rawHoursLate),
+                            DelayRule.isLate(rawHoursLate),
                             lastEvent);
                 })
-                .optional();
+                .optional(), r -> r.isPresent() ? 1 : 0);
     }
 
-    /** Late loads, most late first. Null filters are ignored. */
+    /**
+     * Late loads more than {@code minHoursLate} hours late, most late first. Comparison and sorting use
+     * the raw hours; only the returned value is rounded. Null filters are ignored.
+     */
     public List<DelayedShipment> findDelayed(double minHoursLate, Long carrierId, String originState,
                                              String destinationState, boolean includeDelivered, int limit) {
         String sql = """
@@ -98,12 +101,14 @@ public class LoadRepository {
                       AND (CAST(:originState AS text) IS NULL OR l.origin_state = :originState)
                       AND (CAST(:destinationState AS text) IS NULL OR l.destination_state = :destinationState)
                 ) late
-                WHERE late.hours_late >= :minHoursLate
+                WHERE late.hours_late > :lateThresholdHours
+                  AND late.hours_late > :minHoursLate
                 ORDER BY late.hours_late DESC, late.load_number
                 LIMIT :limit
                 """.formatted(DelayRule.HOURS_LATE_SQL);
 
-        return jdbc.sql(sql)
+        return QueryLog.timed("load.findDelayed", () -> jdbc.sql(sql)
+                .param("lateThresholdHours", DelayRule.LATE_THRESHOLD_HOURS)
                 .param("minHoursLate", minHoursLate)
                 .param("includeDelivered", includeDelivered)
                 .param("carrierId", carrierId)
@@ -121,9 +126,9 @@ public class LoadRepository {
                         trim(rs.getString("destination_state")),
                         rs.getObject("delivery_scheduled_at", OffsetDateTime.class),
                         rs.getObject("delivered_at", OffsetDateTime.class),
-                        rs.getBigDecimal("hours_late").doubleValue(),
+                        DelayRule.display(rs.getDouble("hours_late")),
                         rs.getString("latest_delay_reason")))
-                .list();
+                .list(), List::size);
     }
 
     static Long getLong(ResultSet rs, String column) throws SQLException {

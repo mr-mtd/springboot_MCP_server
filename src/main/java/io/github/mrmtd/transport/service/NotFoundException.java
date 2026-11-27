@@ -1,4 +1,4 @@
-package io.github.mrmtd.transport.tools;
+package io.github.mrmtd.transport.service;
 
 /**
  * An id that doesn't match any row. It extends {@link IllegalArgumentException} so the MCP server
