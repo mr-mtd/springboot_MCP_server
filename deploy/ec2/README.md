@@ -42,7 +42,7 @@ Command, and fails unless `/actuator/health` reports `UP` within 150 s.
 | Where | Name | Value |
 | --- | --- | --- |
 | IAM identity provider | `token.actions.githubusercontent.com` | audience `sts.amazonaws.com` |
-| IAM role | `transport-mcp-github-deploy` | trusted only for `repo:mr-mtd/springboot_MCP_server:ref:refs/heads/main`; may only `ssm:SendCommand` `AWS-RunShellScript` on this instance and read the result |
+| IAM role | `transport-mcp-github-deploy` | trusted only for `sub` = `repo:mr-mtd@49491060/springboot_MCP_server@1474022703:ref:refs/heads/main` (GitHub puts the owner and repo IDs in the subject; check CloudTrail `AssumeRoleWithWebIdentity` events for the exact value if sign-in is refused); may only `ssm:SendCommand` `AWS-RunShellScript` on this instance and read the result |
 | GitHub repo variable | `AWS_DEPLOY_ROLE_ARN` | that role's ARN |
 | GitHub repo variable | `EC2_INSTANCE_ID` | the instance id |
 

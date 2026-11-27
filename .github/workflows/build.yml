@@ -1,9 +1,12 @@
 name: build
 
+# Docs-only changes (Markdown files) don't build, publish or deploy.
 on:
   push:
     branches: [main, feature/dev]
+    paths-ignore: ['**.md']
   pull_request:
+    paths-ignore: ['**.md']
   workflow_dispatch:
 
 permissions:
