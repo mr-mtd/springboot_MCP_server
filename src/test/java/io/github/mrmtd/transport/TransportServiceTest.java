@@ -4,7 +4,7 @@ import io.github.mrmtd.transport.model.CarrierDetails;
 import io.github.mrmtd.transport.model.DelayedShipment;
 import io.github.mrmtd.transport.model.DelayedShipments;
 import io.github.mrmtd.transport.model.LoadStatus;
-import io.github.mrmtd.transport.tools.TransportTools;
+import io.github.mrmtd.transport.service.TransportService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,12 +17,12 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** Calls the tool methods directly against the seeded database. */
+/** Calls the service methods directly against the seeded database. */
 @SpringBootTest
-class TransportToolsTest extends PostgresTestBase {
+class TransportServiceTest extends PostgresTestBase {
 
     @Autowired
-    TransportTools tools;
+    TransportService tools;
 
     @Autowired
     JdbcClient jdbc;
@@ -151,6 +151,48 @@ class TransportToolsTest extends PostgresTestBase {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> tools.findDelayedShipments(null, null, "Texas", null, null, null))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("two-letter");
+    }
+
+    @Test
+    void lateMeansTheSameThingInEveryTool() {
+        // Every delivered load of a bad-actor carrier, late in the last 90 days, per findDelayedShipments...
+        long carrierId = 14L;
+        List<DelayedShipment> delayed = tools.findDelayedShipments(null, carrierId, null, null, true, 100).shipments();
+        var cutoff = java.time.OffsetDateTime.now().minusDays(90);
+        long deliveredLateLast90 = delayed.stream()
+                .filter(s -> s.deliveredAt() != null && !s.deliveredAt().isBefore(cutoff))
+                .count();
+
+        // ...matches getCarrierDetails' late count over the same window...
+        assertThat(tools.getCarrierDetails(carrierId, null).lateDeliveriesLast90Days()).isEqualTo((int) deliveredLateLast90);
+
+        // ...and getLoadStatus agrees that each of them is late, with the same rounded hours.
+        assertThat(delayed).isNotEmpty().allSatisfy(s -> {
+            LoadStatus status = tools.getLoadStatus(s.loadNumber());
+            assertThat(status.late()).isTrue();
+            assertThat(status.hoursLate()).isEqualTo(s.hoursLate());
+        });
+    }
+
+    @Test
+    void loadsAtOrUnderTheThresholdAreNotLateAnywhere() {
+        // The delivered load closest to (but not over) the 2-hour threshold: on time for every tool.
+        String onTime = jdbc.sql("""
+                        SELECT load_number FROM transport.load
+                        WHERE status = 'DELIVERED'
+                          AND delivered_at <= delivery_scheduled_at + interval '2 hours'
+                        ORDER BY delivered_at - delivery_scheduled_at DESC, id LIMIT 1""")
+                .query(String.class).single();
+
+        assertThat(tools.getLoadStatus(onTime).late()).isFalse();
+        assertThat(tools.findDelayedShipments(0.0, null, null, null, true, 100).shipments())
+                .extracting(DelayedShipment::loadNumber).doesNotContain(onTime);
+    }
+
+    @Test
+    void hoursLateIsRoundedOnlyForDisplay() {
+        assertThat(tools.findDelayedShipments(2.0, null, null, null, true, 100).shipments())
+                .allSatisfy(s -> assertThat(s.hoursLate() * 10).isEqualTo(Math.rint(s.hoursLate() * 10)));
     }
 
     private long count(String table) {

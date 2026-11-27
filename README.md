@@ -1,6 +1,6 @@
 # Transport MCP server
 
-[![build](https://github.com/mr-mtd/springboot_MCP_server/actions/workflows/build.yml/badge.svg?branch=feature/dev)](https://github.com/mr-mtd/springboot_MCP_server/actions/workflows/build.yml)
+[![build](https://github.com/mr-mtd/springboot_MCP_server/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/mr-mtd/springboot_MCP_server/actions/workflows/build.yml)
 ![Java 21](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white)
 ![Spring Boot 4.2](https://img.shields.io/badge/Spring%20Boot-4.2-6DB33F?logo=springboot&logoColor=white)
 ![Spring AI 2.1](https://img.shields.io/badge/Spring%20AI-2.1-6DB33F?logo=spring&logoColor=white)
@@ -35,8 +35,10 @@ flowchart LR
         rest["REST mirror<br/>GET /api/**"]
         swagger["Swagger UI /swagger<br/>OpenAPI /v3/api-docs"]
         tools["TransportTools<br/>@McpTool methods"]
+        invoker["ToolInvoker<br/>rate limit, sessions,<br/>logs, metrics"]
+        service["TransportService"]
         repos["LoadRepository<br/>CarrierRepository<br/>(JdbcClient)"]
-        actuator["Actuator<br/>/actuator/health"]
+        actuator["Actuator<br/>health, metrics,<br/>prometheus, mcpsessions"]
     end
 
     subgraph aws["AWS us-east-2"]
@@ -50,14 +52,16 @@ flowchart LR
     swagger --> rest
     browser --> rest
     mcp --> tools
-    rest --> tools
-    tools --> repos
+    tools --> invoker
+    rest --> invoker
+    invoker --> service
+    service --> repos
     repos -- "TLS verify-full<br/>as transport_mcp (read-only)" --> rds
     flyway -- "as transport_migrator<br/>(schema owner)" --> rds
 ```
 
-The MCP endpoint and the REST API call the same `TransportTools` methods, so they always return
-the same data. The server only ever connects as the read-only `transport_mcp` user; schema changes
+The MCP endpoint and the REST API go through the same `ToolInvoker` to the same `TransportService`
+methods, so they return the same data and share the rate limit, logging and metrics. The server only ever connects as the read-only `transport_mcp` user; schema changes
 go through Flyway under a separate profile and user.
 
 ## Tools
@@ -68,13 +72,61 @@ go through Flyway under a separate profile and user.
 | `getCarrierDetails` | `carrierId` or `mcNumber` (exactly one) | Carrier profile, open loads, deliveries and on-time % over the last 90 days |
 | `findDelayedShipments` | all optional: `minHoursLate` (2), `carrierId`, `originState`, `destinationState`, `includeDelivered` (false), `limit` (20, max 100) | Late loads, most late first, with the latest reported delay reason |
 
-**Late** means more than 2 hours past `delivery_scheduled_at`, measured against `delivered_at`, or
-against now while the load is still on the road. That rule lives in one place:
-[`DelayRule`](src/main/java/io/github/mrmtd/transport/repo/DelayRule.java).
+**Late** means strictly more than 2 hours past `delivery_scheduled_at`, measured against
+`delivered_at`, or against now while the load is still on the road. That rule lives in one place,
+[`DelayRule`](src/main/java/io/github/mrmtd/transport/repo/DelayRule.java), and every tool uses it:
+`getLoadStatus`'s `late` flag, `findDelayedShipments`' filter and `getCarrierDetails`' on-time
+percentage all compare the **raw** hours with `>`. Hours are rounded to one decimal only when they're
+put in a response, so a load 2.04 hours late is late and shows `hoursLate: 2.0`.
+`findDelayedShipments` returns loads more than `minHoursLate` hours late, and never on-time loads.
 
 All tools are annotated `readOnlyHint = true` and return records, so clients get an `outputSchema`
 and `structuredContent`. Bad input or an unknown id comes back as a tool result with
 `isError: true` and a readable message, so the calling model can correct itself.
+
+## Sessions, rate limits, logs and metrics
+
+Every tool call, from MCP or from the REST API, goes through
+[`ToolInvoker`](src/main/java/io/github/mrmtd/transport/invocation/ToolInvoker.java), so they all get
+the same treatment.
+
+**Stateful MCP sessions.** The Streamable HTTP transport is stateful: `initialize` returns an
+`Mcp-Session-Id` that the client sends on every request, and `DELETE /mcp` ends the session. The
+server pings open sessions every 30 s. On top of that,
+[`McpSessionRegistry`](src/main/java/io/github/mrmtd/transport/session/McpSessionRegistry.java) keeps
+per-session state (client name and version, start time, last seen, tool calls by tool). State goes
+away on `DELETE` or after 30 minutes idle (`MCP_SESSION_IDLE_TIMEOUT`). See it at
+`GET /actuator/mcpsessions`.
+
+**Rate limit.** A token bucket per caller: per MCP session, or per client IP for `/api`. The default
+allows bursts of 20 calls, then 2 per second. Over the limit, MCP returns a tool error saying when to
+retry, and REST returns `429` with `Retry-After`. Settings: `RATE_LIMIT_CAPACITY`,
+`RATE_LIMIT_REFILL_PER_SECOND`, `RATE_LIMIT_ENABLED`.
+
+**Logs.** Every line written during a tool call carries the transport, tool and MCP session, and
+each call ends with one line saying how it went:
+
+```
+INFO [mcp/getLoadStatus session=632f0ce5-…] ToolInvoker : tool=getLoadStatus outcome=success durationMs=5
+INFO [mcp/getLoadStatus session=40ee8e90-…] ToolInvoker : tool=getLoadStatus outcome=not_found durationMs=1 message="No load found with load number LD-999999"
+INFO [/ session=632f0ce5-…] McpSessionRegistry : MCP session closed by client mcpSession=632f0ce5-… toolCalls=3 lasted=PT4M12S
+```
+
+Session start, close and expiry are logged. Rate-limited calls log a WARN and unexpected errors log
+an ERROR with the stack trace. Repository queries log their name, row count and duration at DEBUG
+(`LOG_LEVEL=DEBUG`), and any query over 1 s logs a WARN, since the DB user's statement timeout is 5 s.
+
+**Metrics** at `/actuator/metrics` and `/actuator/prometheus`:
+
+| Metric | Type | Tags |
+| --- | --- | --- |
+| `transport.tool.invocations` | timer: count, total and max duration, histogram | `tool`, `transport` (`mcp`/`rest`), `outcome` |
+| `transport.tool.failures` | counter, for every outcome except success | same |
+| `transport.mcp.sessions.active` | gauge | |
+
+Outcomes are `success`, `invalid_input`, `not_found`, `rate_limited` and `error`. For example, the
+p95 duration per tool in Prometheus is
+`histogram_quantile(0.95, sum by (tool, le) (rate(transport_tool_invocations_seconds_bucket[5m])))`.
 
 ## Database
 
@@ -207,6 +259,8 @@ users, Flyway as `transport_migrator`, app as `transport_mcp`), and then:
 - start the server on a random port and call it with the MCP Java SDK client (`initialize`,
   `tools/list`, `tools/call`), checking `structuredContent`, output schemas and `isError` results
 - call the REST mirror and check its 404/400 mapping and the OpenAPI document
+- check that "late" agrees across all three tools, at the 2-hour boundary too
+- check per-session state, the rate limit (MCP tool error and REST 429), and the metrics
 
 GitHub Actions runs `mvn verify` (with these tests) on every push to `main` and `feature/dev` and on
 every pull request: [`.github/workflows/build.yml`](.github/workflows/build.yml).

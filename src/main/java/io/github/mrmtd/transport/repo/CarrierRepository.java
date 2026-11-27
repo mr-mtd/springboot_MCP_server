@@ -26,19 +26,18 @@ public class CarrierRepository {
                                           AND l.delivered_at >= now() - interval '90 days')        AS delivered_90,
                        count(*) FILTER (WHERE l.status = 'DELIVERED'
                                           AND l.delivered_at >= now() - interval '90 days'
-                                          AND l.delivered_at > l.delivery_scheduled_at
-                                              + make_interval(secs => :thresholdHours * 3600))     AS late_90
+                                          AND %s)                                                  AS late_90
                 FROM transport.carrier c
                 LEFT JOIN transport.load l ON l.carrier_id = c.id
                 WHERE (CAST(:carrierId AS bigint) IS NULL OR c.id = :carrierId)
                   AND (CAST(:mcNumber AS text) IS NULL OR upper(c.mc_number) = upper(:mcNumber))
                 GROUP BY c.id
-                """;
+                """.formatted(DelayRule.IS_LATE_SQL);
 
-        return jdbc.sql(sql)
+        return QueryLog.timed("carrier.findDetails", () -> jdbc.sql(sql)
                 .param("carrierId", carrierId)
                 .param("mcNumber", mcNumber)
-                .param("thresholdHours", DelayRule.LATE_THRESHOLD_HOURS)
+                .param("lateThresholdHours", DelayRule.LATE_THRESHOLD_HOURS)
                 .query((rs, n) -> {
                     int delivered = rs.getInt("delivered_90");
                     int late = rs.getInt("late_90");
@@ -61,6 +60,6 @@ public class CarrierRepository {
                             late,
                             onTimePct);
                 })
-                .optional();
+                .optional(), r -> r.isPresent() ? 1 : 0);
     }
 }
