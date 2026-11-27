@@ -1,0 +1,24 @@
+# Run migrations as the schema owner, then exit:
+#   MIGRATOR_PASSWORD=... DB_URL=... mvn spring-boot:run -Dspring-boot.run.profiles=migrate
+#
+# On a database where V1 and V2 were already run by hand (your RDS instance), baseline-on-migrate
+# records them as applied instead of running them again. A fresh, empty schema runs both.
+spring:
+  main:
+    web-application-type: none
+  ai:
+    mcp:
+      server:
+        enabled: false
+  datasource:
+    username: ${MIGRATOR_USERNAME:transport_migrator}
+    password: ${MIGRATOR_PASSWORD:}
+    hikari:
+      read-only: false
+  flyway:
+    enabled: true
+    schemas: transport
+    create-schemas: false
+    baseline-on-migrate: true
+    baseline-version: 2
+    baseline-description: Schema and seed applied by hand

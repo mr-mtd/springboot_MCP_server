@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: transport-mcp-server
+
+  # Runtime connection: the read-only transport_mcp user.
+  # For RDS, DB_URL looks like:
+  #   jdbc:postgresql://<endpoint>:5432/transport?sslmode=verify-full&sslrootcert=/path/to/global-bundle.pem
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/transport}
+    username: ${DB_USERNAME:transport_mcp}
+    password: ${DB_PASSWORD:}
+    hikari:
+      read-only: true
+      maximum-pool-size: 5
+
+  # The runtime user can't write, so migrations only run with the "migrate" profile
+  # (see application-migrate.yml), which connects as transport_migrator.
+  flyway:
+    enabled: false
+
+  ai:
+    mcp:
+      server:
+        name: transport-mcp-server
+        version: 0.1.0
+        type: SYNC
+        protocol: STREAMABLE          # Streamable HTTP on POST/GET /mcp
+        instructions: >
+          Read-only tools over a synthetic freight database of carriers, loads and load events.
+          Load numbers look like LD-000420. A load is late when it is more than 2 hours past its
+          scheduled delivery.
+
+server:
+  port: ${PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    io.github.mrmtd.transport: ${LOG_LEVEL:INFO}

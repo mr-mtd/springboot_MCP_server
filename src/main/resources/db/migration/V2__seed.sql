@@ -215,7 +215,7 @@ INSERT INTO transport.load_event (load_id, event_type, occurred_at, delay_reason
 SELECT id, 'DELAY_REPORTED',
        greatest(picked_up_at + interval '1 hour',
                 least(delivery_scheduled_at - interval '3 hours', now() - interval '10 minutes')),
-       (ARRAY['WEATHER','MECHANICAL','TRAFFIC','SHIPPER_DELAY','HOURS_OF_SERVICE'])[1 + floor(r_late_by * 5)::int],
+       (ARRAY['WEATHER','MECHANICAL','TRAFFIC','SHIPPER_DELAY','HOURS_OF_SERVICE'])[1 + (id % 5)::int],
        'Driver reported delay'
 FROM seed_event_src
 WHERE picked_up_at IS NOT NULL
