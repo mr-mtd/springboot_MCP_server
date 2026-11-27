@@ -1,5 +1,17 @@
 # Transport MCP server
 
+[![build](https://github.com/mr-mtd/springboot_MCP_server/actions/workflows/build.yml/badge.svg?branch=feature/dev)](https://github.com/mr-mtd/springboot_MCP_server/actions/workflows/build.yml)
+![Java 21](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white)
+![Spring Boot 4.2](https://img.shields.io/badge/Spring%20Boot-4.2-6DB33F?logo=springboot&logoColor=white)
+![Spring AI 2.1](https://img.shields.io/badge/Spring%20AI-2.1-6DB33F?logo=spring&logoColor=white)
+![MCP Streamable HTTP](https://img.shields.io/badge/MCP-Streamable%20HTTP-000000)
+![PostgreSQL 18](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
+![Amazon RDS](https://img.shields.io/badge/AWS-RDS-527FFF?logo=amazonrds&logoColor=white)
+![Flyway](https://img.shields.io/badge/Flyway-migrations-CC0200?logo=flyway&logoColor=white)
+![Testcontainers](https://img.shields.io/badge/tested%20with-Testcontainers-291A3F?logo=testcontainers&logoColor=white)
+![OpenAPI](https://img.shields.io/badge/OpenAPI-Swagger%20UI-85EA2D?logo=swagger&logoColor=black)
+![Maven](https://img.shields.io/badge/build-Maven-C71A36?logo=apachemaven&logoColor=white)
+
 A Spring Boot [MCP](https://modelcontextprotocol.io) server that exposes read-only tools over a
 synthetic freight database in PostgreSQL: carriers, loads, and load tracking events. It's a
 learning project.
@@ -7,6 +19,45 @@ learning project.
 - Java 21, Spring Boot 4.2, Spring AI 2.1 (`spring-ai-starter-mcp-server-webmvc`)
 - Transport: Streamable HTTP at `POST /mcp`
 - Database: PostgreSQL (Amazon RDS in us-east-2), queried with `JdbcClient`, schema managed by Flyway
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph clients["Clients"]
+        llm["MCP client<br/>(Claude, MCP Inspector, agent)"]
+        browser["Browser / curl"]
+    end
+
+    subgraph app["transport-mcp-server (Spring Boot 4.2)"]
+        mcp["Spring AI MCP server<br/>POST /mcp (JSON-RPC)"]
+        rest["REST mirror<br/>GET /api/**"]
+        swagger["Swagger UI /swagger<br/>OpenAPI /v3/api-docs"]
+        tools["TransportTools<br/>@McpTool methods"]
+        repos["LoadRepository<br/>CarrierRepository<br/>(JdbcClient)"]
+        actuator["Actuator<br/>/actuator/health"]
+    end
+
+    subgraph aws["AWS us-east-2"]
+        rds[("RDS PostgreSQL 18<br/>db transport, schema transport<br/>carrier, load, load_event")]
+    end
+
+    flyway["Flyway<br/>(migrate profile)"]
+
+    llm -- "Streamable HTTP" --> mcp
+    browser --> swagger
+    swagger --> rest
+    browser --> rest
+    mcp --> tools
+    rest --> tools
+    tools --> repos
+    repos -- "TLS verify-full<br/>as transport_mcp (read-only)" --> rds
+    flyway -- "as transport_migrator<br/>(schema owner)" --> rds
+```
+
+The MCP endpoint and the REST API call the same `TransportTools` methods, so they always return
+the same data. The server only ever connects as the read-only `transport_mcp` user; schema changes
+go through Flyway under a separate profile and user.
 
 ## Tools
 
@@ -57,7 +108,7 @@ export DB_PASSWORD='...'        # single quotes, so the shell leaves special cha
 mvn spring-boot:run
 ```
 
-The server listens on `http://localhost:8080/mcp`. Health: `http://localhost:8080/actuator/health`.
+The server listens on `http://localhost:8080/mcp`. Swagger UI: `http://localhost:8080/swagger`. Health: `http://localhost:8080/actuator/health`.
 
 ### Migrations
 
@@ -103,6 +154,26 @@ curl -s "${H[@]}" -H "Mcp-Session-Id: $SID" localhost:8080/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"findDelayedShipments","arguments":{"limit":3}}}'
 ```
 
+## Swagger UI and the REST API
+
+The MCP endpoint speaks JSON-RPC, which Swagger can't describe, so each tool also has a plain
+`GET` endpoint under `/api` that calls the same method. Open **http://localhost:8080/swagger** to
+try them in the browser. The OpenAPI document is at `/v3/api-docs`.
+
+| Endpoint | Same as |
+| --- | --- |
+| `GET /api/loads/{loadNumber}` | `getLoadStatus` |
+| `GET /api/carriers/{carrierId}` | `getCarrierDetails` by id |
+| `GET /api/carriers?mcNumber=MC155433` | `getCarrierDetails` by MC number |
+| `GET /api/shipments/delayed?minHoursLate=&carrierId=&originState=&destinationState=&includeDelivered=&limit=` | `findDelayedShipments` |
+
+Errors come back as RFC 9457 problem details: an unknown id is `404`, bad input is `400`.
+
+```bash
+curl -s localhost:8080/api/loads/420
+curl -s 'localhost:8080/api/shipments/delayed?originState=TX&limit=3'
+```
+
 ## Tests
 
 ```bash
@@ -115,3 +186,7 @@ users, Flyway as `transport_migrator`, app as `transport_mcp`), and then:
 - call each tool method directly against the seeded data
 - start the server on a random port and call it with the MCP Java SDK client (`initialize`,
   `tools/list`, `tools/call`), checking `structuredContent`, output schemas and `isError` results
+- call the REST mirror and check its 404/400 mapping and the OpenAPI document
+
+GitHub Actions runs `mvn verify` (with these tests) on every push to `main` and `feature/dev` and on
+every pull request: [`.github/workflows/build.yml`](.github/workflows/build.yml).
