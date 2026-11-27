@@ -10,6 +10,7 @@
 ![Flyway](https://img.shields.io/badge/Flyway-migrations-CC0200?logo=flyway&logoColor=white)
 ![Testcontainers](https://img.shields.io/badge/tested%20with-Testcontainers-291A3F?logo=testcontainers&logoColor=white)
 ![OpenAPI](https://img.shields.io/badge/OpenAPI-Swagger%20UI-85EA2D?logo=swagger&logoColor=black)
+![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![Maven](https://img.shields.io/badge/build-Maven-C71A36?logo=apachemaven&logoColor=white)
 
 A Spring Boot [MCP](https://modelcontextprotocol.io) server that exposes read-only tools over a
@@ -109,6 +110,25 @@ mvn spring-boot:run
 ```
 
 The server listens on `http://localhost:8080/mcp`. Swagger UI: `http://localhost:8080/swagger`. Health: `http://localhost:8080/actuator/health`.
+
+### In Docker
+
+The [`Dockerfile`](Dockerfile) is multi-stage: Maven builds the jar, then it runs on a JRE-only image as a
+non-root user. The image already has the RDS certificate bundle at `/app/certs/global-bundle.pem`.
+
+```bash
+docker build -t transport-mcp-server .
+
+docker run --rm -p 8080:8080 \
+  -e DB_URL="jdbc:postgresql://transport-db.cps0062uqgpv.us-east-2.rds.amazonaws.com:5432/transport?sslmode=verify-full&sslrootcert=/app/certs/global-bundle.pem" \
+  -e DB_USERNAME=transport_mcp \
+  -e DB_PASSWORD \
+  transport-mcp-server
+```
+
+`-e DB_PASSWORD` with no value passes through the variable from your shell, so the password isn't
+typed on the command line. Tests aren't run inside the image build (they need Docker themselves);
+CI runs them with `mvn verify` and then checks that the image builds.
 
 ### Migrations
 

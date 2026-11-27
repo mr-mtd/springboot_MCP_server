@@ -31,6 +31,10 @@ jobs:
       - name: Build and test
         run: mvn -B -ntp verify
 
+      # Checks that the Dockerfile still builds; the image isn't pushed anywhere.
+      - name: Build Docker image
+        run: docker build -t transport-mcp-server:ci .
+
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
