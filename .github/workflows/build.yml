@@ -1,0 +1,44 @@
+name: build
+
+on:
+  push:
+    branches: [main, feature/dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Tests start Postgres 18 with Testcontainers; Docker is already on ubuntu-latest.
+      - name: Build and test
+        run: mvn -B -ntp verify
+
+      # Checks that the Dockerfile still builds; the image isn't pushed anywhere.
+      - name: Build Docker image
+        run: docker build -t transport-mcp-server:ci .
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          retention-days: 7

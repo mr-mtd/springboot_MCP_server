@@ -50,7 +50,7 @@ public class TransportTools {
             String loadNumber) {
         String normalized = normalizeLoadNumber(loadNumber);
         return loads.findStatus(normalized)
-                .orElseThrow(() -> new IllegalArgumentException("No load found with load number " + normalized));
+                .orElseThrow(() -> new NotFoundException("No load found with load number " + normalized));
     }
 
     @McpTool(name = "getCarrierDetails",
@@ -69,7 +69,7 @@ public class TransportTools {
             throw new IllegalArgumentException("Give exactly one of carrierId or mcNumber");
         }
         return carriers.findDetails(carrierId, mc)
-                .orElseThrow(() -> new IllegalArgumentException(carrierId != null
+                .orElseThrow(() -> new NotFoundException(carrierId != null
                         ? "No carrier found with id " + carrierId
                         : "No carrier found with MC number " + mc));
     }

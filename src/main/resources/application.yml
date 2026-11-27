@@ -42,3 +42,11 @@ management:
 logging:
   level:
     io.github.mrmtd.transport: ${LOG_LEVEL:INFO}
+
+# Swagger UI for the REST mirror of the tools. The MCP endpoint itself (/mcp) is JSON-RPC, so it isn't listed.
+springdoc:
+  paths-to-match: /api/**
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger
