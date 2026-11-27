@@ -34,7 +34,7 @@ Then `http://localhost:9080/swagger`, `http://localhost:9080/actuator/health`, o
 
 ## Updating
 
-Automatic: every push to `feature/dev` runs `build` → `publish` → `deploy` in
+Automatic: every push to `main` runs `build` → `publish` → `deploy` in
 [`build.yml`](../../.github/workflows/build.yml). The `deploy` job signs in to AWS with GitHub OIDC
 (no AWS keys stored in GitHub), sends `/opt/transport-mcp/run.sh` to the instance with SSM Run
 Command, and fails unless `/actuator/health` reports `UP` within 150 s.
@@ -42,7 +42,7 @@ Command, and fails unless `/actuator/health` reports `UP` within 150 s.
 | Where | Name | Value |
 | --- | --- | --- |
 | IAM identity provider | `token.actions.githubusercontent.com` | audience `sts.amazonaws.com` |
-| IAM role | `transport-mcp-github-deploy` | trusted only for `repo:mr-mtd/springboot_MCP_server:ref:refs/heads/feature/dev`; may only `ssm:SendCommand` `AWS-RunShellScript` on this instance and read the result |
+| IAM role | `transport-mcp-github-deploy` | trusted only for `repo:mr-mtd/springboot_MCP_server:ref:refs/heads/main`; may only `ssm:SendCommand` `AWS-RunShellScript` on this instance and read the result |
 | GitHub repo variable | `AWS_DEPLOY_ROLE_ARN` | that role's ARN |
 | GitHub repo variable | `EC2_INSTANCE_ID` | the instance id |
 
