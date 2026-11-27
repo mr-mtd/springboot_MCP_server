@@ -34,5 +34,19 @@ Then `http://localhost:9080/swagger`, `http://localhost:9080/actuator/health`, o
 
 ## Updating
 
-Push to `feature/dev`, wait for CI, then in a Session Manager shell: `sudo /opt/transport-mcp/run.sh`.
+Automatic: every push to `feature/dev` runs `build` → `publish` → `deploy` in
+[`build.yml`](../../.github/workflows/build.yml). The `deploy` job signs in to AWS with GitHub OIDC
+(no AWS keys stored in GitHub), sends `/opt/transport-mcp/run.sh` to the instance with SSM Run
+Command, and fails unless `/actuator/health` reports `UP` within 150 s.
+
+| Where | Name | Value |
+| --- | --- | --- |
+| IAM identity provider | `token.actions.githubusercontent.com` | audience `sts.amazonaws.com` |
+| IAM role | `transport-mcp-github-deploy` | trusted only for `repo:mr-mtd/springboot_MCP_server:ref:refs/heads/feature/dev`; may only `ssm:SendCommand` `AWS-RunShellScript` on this instance and read the result |
+| GitHub repo variable | `AWS_DEPLOY_ROLE_ARN` | that role's ARN |
+| GitHub repo variable | `EC2_INSTANCE_ID` | the instance id |
+
+No GitHub secrets are needed. The DB password stays in SSM Parameter Store.
+
+Manual: in a Session Manager shell, `sudo /opt/transport-mcp/run.sh`.
 Logs: `sudo docker logs -f transport-mcp-server`.
