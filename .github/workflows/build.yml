@@ -82,7 +82,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-  # After a push to feature/dev publishes a new image, restart the container on the EC2 host.
+  # After a push to main publishes a new image, restart the container on the EC2 host.
   # GitHub signs in to AWS with OIDC (no stored AWS keys) as a role that may only run commands on
   # that one instance. The command runs /opt/transport-mcp/run.sh (pull + restart) and then waits
   # for /actuator/health to report UP. Skipped until the repo variables below are set.
@@ -92,7 +92,7 @@ jobs:
   #   EC2_INSTANCE_ID      i-...
   deploy:
     needs: publish
-    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/dev' && vars.EC2_INSTANCE_ID != ''
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.EC2_INSTANCE_ID != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
