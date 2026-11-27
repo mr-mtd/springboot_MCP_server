@@ -24,7 +24,13 @@ spring:
         name: transport-mcp-server
         version: 0.1.0
         type: SYNC
-        protocol: STREAMABLE          # Streamable HTTP on POST/GET /mcp
+        # Stateful Streamable HTTP: initialize returns an Mcp-Session-Id that the client sends on
+        # every later request, and DELETE /mcp ends the session. (STATELESS would drop sessions.)
+        protocol: STREAMABLE
+        streamable-http:
+          mcp-endpoint: /mcp
+          keep-alive-interval: 30s    # server pings each open session so dead clients are noticed
+          disallow-delete: false      # let clients end their session with DELETE /mcp
         instructions: >
           Read-only tools over a synthetic freight database of carriers, loads and load events.
           Load numbers look like LD-000420. A load is late when it is more than 2 hours past its
@@ -33,13 +39,30 @@ spring:
 server:
   port: ${PORT:8080}
 
+transport:
+  mcp:
+    # Session state (see McpSessionRegistry) is dropped after this long with no requests.
+    session-idle-timeout: ${MCP_SESSION_IDLE_TIMEOUT:30m}
+  # Token bucket per caller (MCP session, or client IP for /api): bursts of `capacity` calls,
+  # then `refill-per-second` sustained.
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    capacity: ${RATE_LIMIT_CAPACITY:20}
+    refill-per-second: ${RATE_LIMIT_REFILL_PER_SECOND:2}
+
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics,prometheus,mcpsessions
+  metrics:
+    tags:
+      application: transport-mcp-server
 
 logging:
+  # Every line from a tool call carries transport, tool and MCP session (set in ToolInvoker / McpSessionFilter).
+  pattern:
+    level: "%5p [%X{transport:-}/%X{tool:-} session=%X{mcpSession:-}]"
   level:
     io.github.mrmtd.transport: ${LOG_LEVEL:INFO}
 
