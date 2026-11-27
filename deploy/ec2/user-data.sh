@@ -36,23 +36,14 @@ IMAGE=ghcr.io/mr-mtd/transport-mcp-server:feature-dev
 DB_URL='jdbc:postgresql://transport-db.cps0062uqgpv.us-east-2.rds.amazonaws.com:5432/transport?sslmode=verify-full&sslrootcert=/app/certs/global-bundle.pem'
 
 # Read at start time, never written to disk. The instance role may read only this parameter.
-DB_PASSWORD=\$(aws ssm get-parameter --region $REGION --name /transport-mcp/db-password \
-  --with-decryption --query Parameter.Value --output text)
+DB_PASSWORD=\$(aws ssm get-parameter --region $REGION --name /transport-mcp/db-password --with-decryption --query Parameter.Value --output text)
 export DB_PASSWORD
 
 docker network inspect transport >/dev/null 2>&1 || docker network create transport
 docker pull "\$IMAGE"
 docker rm -f transport-mcp-server >/dev/null 2>&1 || true
-docker run -d --name transport-mcp-server \
-  --network transport \
-  --restart unless-stopped \
-  -p 127.0.0.1:8080:8080 \
-  --memory 600m \
-  -e JAVA_TOOL_OPTIONS='-Xmx300m -XX:+UseSerialGC' \
-  -e DB_URL="\$DB_URL" \
-  -e DB_USERNAME=transport_mcp \
-  -e DB_PASSWORD \
-  "\$IMAGE"
+# One line on purpose: inside this unquoted heredoc a trailing backslash would be eaten anyway.
+docker run -d --name transport-mcp-server --network transport --restart unless-stopped -p 127.0.0.1:8080:8080 --memory 600m -e JAVA_TOOL_OPTIONS='-Xmx300m -XX:+UseSerialGC' -e DB_URL="\$DB_URL" -e DB_USERNAME=transport_mcp -e DB_PASSWORD "\$IMAGE"
 docker image prune -f >/dev/null
 echo "Started \$IMAGE"
 SCRIPT
