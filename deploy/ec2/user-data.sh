@@ -32,7 +32,7 @@ cat > /opt/transport-mcp/run.sh <<SCRIPT
 #!/bin/bash
 set -euo pipefail
 
-IMAGE=ghcr.io/mr-mtd/transport-mcp-server:feature-dev
+IMAGE=ghcr.io/mr-mtd/transport-mcp-server:main
 DB_URL='jdbc:postgresql://transport-db.cps0062uqgpv.us-east-2.rds.amazonaws.com:5432/transport?sslmode=verify-full&sslrootcert=/app/certs/global-bundle.pem'
 
 # Read at start time, never written to disk. The instance role may read only this parameter.
