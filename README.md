@@ -182,6 +182,11 @@ docker run --rm -p 8080:8080 \
 typed on the command line. Tests aren't run inside the image build (they need Docker themselves);
 CI runs them with `mvn verify` and then checks that the image builds.
 
+### On AWS
+
+It runs on a free-tier EC2 instance with no inbound ports, next to RDS. CI publishes the image to
+GHCR. See [`deploy/ec2/README.md`](deploy/ec2/README.md).
+
 ### Migrations
 
 The runtime user can't write, so Flyway only runs under the `migrate` profile, as `transport_migrator`:
